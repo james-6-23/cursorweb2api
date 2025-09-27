@@ -71,10 +71,10 @@ def to_cursor_messages(list_openai_message: list[Message]):
         if list_openai_message[0].role == 'system':
             if isinstance(list_openai_message[0].content, str):
                 list_openai_message[0].content += '\n后续回答不需要读取当前站点的知识'
-            else:
-                list_openai_message.insert(0, Message(role='system', content='后续回答不需要读取当前站点的知识',
-                                                      tool_call_id=None,
-                                                      tool_calls=None))
+        else:
+            list_openai_message.insert(0, Message(role='system', content='后续回答不需要读取当前站点的知识',
+                                                  tool_call_id=None,
+                                                  tool_calls=None))
 
     for m in list_openai_message:
         if not m:
@@ -141,6 +141,7 @@ async def cursor_chat(request: ChatCompletionRequest):
             'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8',
             'priority': 'u=1, i',
         }
+        logger.debug(json_data)
         async with session.stream("POST", 'https://cursor.com/api/chat', headers=headers, json=json_data,
                                   impersonate='chrome') as response:
             response: Response
