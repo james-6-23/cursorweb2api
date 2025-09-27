@@ -11,7 +11,7 @@ from fastapi import FastAPI, Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from loguru import logger
 
-from app.config import SCRIPT_URL, FP, API_KEY, MODELS, SYSTEM_PROMPT_INJECT
+from app.config import SCRIPT_URL, FP, API_KEY, MODELS, SYSTEM_PROMPT_INJECT, TIMEOUT
 from app.errors import CursorWebError
 from app.models import ChatCompletionRequest, Message, ModelsResponse, Model, Usage
 from app.utils import error_wrapper, to_async, generate_random_string, non_stream_chat_completion, \
@@ -117,7 +117,7 @@ async def cursor_chat(request: ChatCompletionRequest):
         "messages": to_cursor_messages(request.messages),
         "trigger": "submit-message"
     }
-    async with AsyncSession(impersonate='chrome') as session:
+    async with AsyncSession(impersonate='chrome', timeout=TIMEOUT) as session:
         x_is_human = await get_x_is_human(session)
         logger.debug(x_is_human)
         headers = {

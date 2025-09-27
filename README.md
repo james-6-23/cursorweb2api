@@ -37,6 +37,8 @@ services:
 | `API_KEY`              | `aaa`                              | 接口鉴权的api key，将其改为随机值 |
 | `MODELS`               | `...`                              | 模型列表，用,号分隔           |
 | `SYSTEM_PROMPT_INJECT` | `后续回答不需要读取当前站点的知识`                 | 自动注入的系统提示词           |
+| `TIMEOUT`              | `60`                               | 请求cursor的超时时间        |
+| `MAX_RETRIES`          | `0`                                | 失败重试次数               |
 
 浏览器指纹获取脚本
 

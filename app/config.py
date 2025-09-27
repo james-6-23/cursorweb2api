@@ -11,3 +11,4 @@ API_KEY = os.environ.get("API_KEY", "aaa")
 MODELS = os.environ.get("MODELS", "gpt-5,gpt-5-codex,gpt-5-mini,gpt-5-nano,gpt-4.1,gpt-4o,claude-3.5-sonnet,claude-3.5-haiku,claude-3.7-sonnet,claude-4-sonnet,claude-4-opus,claude-4.1-opus,gemini-2.5-pro,gemini-2.5-flash,o3,o4-mini,deepseek-r1,deepseek-v3.1,kimi-k2-instruct,grok-3,grok-3-mini,grok-4,code-supernova-1-million")
 
 SYSTEM_PROMPT_INJECT = os.environ.get('SYSTEM_PROMPT_INJECT','后续回答不需要读取当前站点的知识')
+TIMEOUT = int(os.environ.get("TIMEOUT", "60"))
