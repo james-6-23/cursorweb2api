@@ -181,19 +181,10 @@ async def stream_chat_completion(
     }
 
     # 流式发送内容
+    usage = None
     async for chunk in generator:
         if isinstance(chunk, Usage):
-            usage_data = {"id": chat_id, "object": "chat.completion.chunk",
-                          "created": created_time, "model": request.model,
-                          "choices": [],
-                          "usage": {"prompt_tokens": chunk.prompt_tokens,
-                                    "completion_tokens": chunk.completion_tokens,
-                                    "total_tokens": chunk.total_tokens}
-                          }
-
-            yield {
-                "data": json.dumps(usage_data, ensure_ascii=False)
-            }
+            usage = chunk
             continue
 
         if not is_send_init:
@@ -231,4 +222,29 @@ async def stream_chat_completion(
         ]
     }
     yield {"data": json.dumps(final_response, ensure_ascii=False)}
+    if usage:
+        usage_data = {"id": chat_id, "object": "chat.completion.chunk",
+                      "created": created_time, "model": request.model,
+                      "choices": [],
+                      "usage": {"prompt_tokens": usage.prompt_tokens,
+                                "completion_tokens": usage.completion_tokens,
+                                "total_tokens": usage.total_tokens, "prompt_tokens_details": {
+                              "cached_tokens": 0,
+                              "text_tokens": 0,
+                              "audio_tokens": 0,
+                              "image_tokens": 0
+                          },
+                                "completion_tokens_details": {
+                                    "text_tokens": 0,
+                                    "audio_tokens": 0,
+                                    "reasoning_tokens": 0
+                                },
+                                "input_tokens": 0,
+                                "output_tokens": 0,
+                                "input_tokens_details": None}
+                      }
+
+        yield {
+            "data": json.dumps(usage_data, ensure_ascii=False)
+        }
     yield {"data": "[DONE]"}
