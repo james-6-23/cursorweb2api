@@ -10,6 +10,7 @@ from curl_cffi import AsyncSession, Response
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from loguru import logger
+from starlette.middleware.cors import CORSMiddleware
 
 from app.config import SCRIPT_URL, FP, API_KEY, MODELS, SYSTEM_PROMPT_INJECT, TIMEOUT
 from app.errors import CursorWebError
@@ -22,6 +23,14 @@ env_code = open('./jscode/env.js', 'r', encoding='utf-8').read()
 app = FastAPI()
 
 security = HTTPBearer()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.post("/v1/chat/completions")
