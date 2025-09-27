@@ -148,6 +148,8 @@ async def cursor_chat(request: ChatCompletionRequest):
                 if data and data.strip():
                     try:
                         event_data = json.loads(data)
+                        if event_data.get('type') == 'error':
+                            raise CursorWebError(response.status_code, event_data.get('errorText','errorText为空'))
                         if event_data.get('type') == 'finish':
                             usage = event_data.get('messageMetadata', {}).get('usage')
                             if not usage:
