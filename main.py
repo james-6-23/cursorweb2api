@@ -13,7 +13,7 @@ from loguru import logger
 
 from app.config import SCRIPT_URL, FP, API_KEY, MODELS
 from app.errors import CursorWebError
-from app.models import ChatCompletionRequest, Message, ModelsResponse, Model
+from app.models import ChatCompletionRequest, Message, ModelsResponse, Model, Usage
 from app.utils import error_wrapper, to_async, generate_random_string, non_stream_chat_completion, \
     stream_chat_completion, safe_stream_wrapper
 
@@ -148,6 +148,14 @@ async def cursor_chat(request: ChatCompletionRequest):
                 if data and data.strip():
                     try:
                         event_data = json.loads(data)
+                        if event_data.get('type') == 'finish':
+                            usage = event_data.get('messageMetadata', {}).get('usage')
+                            if not usage:
+                                continue
+                            yield Usage(prompt_tokens=usage.get('inputTokens'),
+                                        completion_tokens=usage.get('outputTokens'),
+                                        total_tokens=usage.get('totalTokens'))
+                            return
                         delta = event_data.get('delta')
                         # logger.debug(delta)
                         if not delta:

@@ -13,7 +13,7 @@ from sse_starlette import EventSourceResponse
 from starlette.responses import JSONResponse
 
 from app.errors import CursorWebError
-from app.models import ChatCompletionRequest
+from app.models import ChatCompletionRequest, Usage
 
 
 async def safe_stream_wrapper(
@@ -120,7 +120,11 @@ async def non_stream_chat_completion(
     """
     # 收集所有流式输出
     full_content = ""
+    usage = Usage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
     async for chunk in generator:
+        if isinstance(chunk, Usage):
+            usage = chunk
+            continue
         full_content += chunk
 
     # 构造OpenAI格式的响应
@@ -140,9 +144,9 @@ async def non_stream_chat_completion(
             }
         ],
         "usage": {
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "total_tokens": 0
+            "prompt_tokens": usage.prompt_tokens,
+            "completion_tokens": usage.completion_tokens,
+            "total_tokens": usage.total_tokens
         }
     }
 
@@ -176,9 +180,22 @@ async def stream_chat_completion(
         ]
     }
 
-
     # 流式发送内容
     async for chunk in generator:
+        if isinstance(chunk, Usage):
+            usage_data = {"id": chat_id, "object": "chat.completion.chunk",
+                          "created": created_time, "model": request.model,
+                          "choices": [],
+                          "usage": {"prompt_tokens": chunk.prompt_tokens,
+                                    "completion_tokens": chunk.completion_tokens,
+                                    "total_tokens": chunk.total_tokens}
+                          }
+
+            yield {
+                "data": json.dumps(usage_data, ensure_ascii=False)
+            }
+            continue
+
         if not is_send_init:
             yield {
                 "data": json.dumps(initial_response, ensure_ascii=False)
