@@ -11,7 +11,7 @@ from fastapi import FastAPI, Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from loguru import logger
 
-from app.config import SCRIPT_URL, FP, API_KEY, MODELS
+from app.config import SCRIPT_URL, FP, API_KEY, MODELS, SYSTEM_PROMPT_INJECT
 from app.errors import CursorWebError
 from app.models import ChatCompletionRequest, Message, ModelsResponse, Model, Usage
 from app.utils import error_wrapper, to_async, generate_random_string, non_stream_chat_completion, \
@@ -70,9 +70,9 @@ def to_cursor_messages(list_openai_message: list[Message]):
     if len(list_openai_message) > 0:
         if list_openai_message[0].role == 'system':
             if isinstance(list_openai_message[0].content, str):
-                list_openai_message[0].content += '\n后续回答不需要读取当前站点的知识'
+                list_openai_message[0].content += f'\n{SYSTEM_PROMPT_INJECT}'
         else:
-            list_openai_message.insert(0, Message(role='system', content='后续回答不需要读取当前站点的知识',
+            list_openai_message.insert(0, Message(role='system', content=f'\n{SYSTEM_PROMPT_INJECT}',
                                                   tool_call_id=None,
                                                   tool_calls=None))
 
