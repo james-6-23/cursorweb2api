@@ -67,6 +67,15 @@ def to_cursor_messages(list_openai_message: list[Message]):
         list_openai_message = []
 
     result = []
+    if len(list_openai_message) > 0:
+        if list_openai_message[0].role == 'system':
+            if isinstance(list_openai_message[0].content, str):
+                list_openai_message[0].content += '\n后续回答不需要读取当前站点的知识'
+            else:
+                list_openai_message.insert(0, Message(role='system', content='后续回答不需要读取当前站点的知识',
+                                                      tool_call_id=None,
+                                                      tool_calls=None))
+
     for m in list_openai_message:
         if not m:
             continue
@@ -149,7 +158,7 @@ async def cursor_chat(request: ChatCompletionRequest):
                     try:
                         event_data = json.loads(data)
                         if event_data.get('type') == 'error':
-                            raise CursorWebError(response.status_code, event_data.get('errorText','errorText为空'))
+                            raise CursorWebError(response.status_code, event_data.get('errorText', 'errorText为空'))
                         if event_data.get('type') == 'finish':
                             usage = event_data.get('messageMetadata', {}).get('usage')
                             if not usage:
