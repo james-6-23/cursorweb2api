@@ -141,7 +141,7 @@ async def cursor_chat(request: ChatCompletionRequest):
             'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8',
             'priority': 'u=1, i',
         }
-        logger.debug(json_data)
+        # logger.debug(json_data)
         async with session.stream("POST", 'https://cursor.com/api/chat', headers=headers, json=json_data,
                                   impersonate='chrome') as response:
             response: Response
