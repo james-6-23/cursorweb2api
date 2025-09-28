@@ -25,3 +25,6 @@ if not DEBUG:
 PROXY = os.environ.get("PROXY", "")
 if not PROXY:
     PROXY = None
+
+
+logger.info(f"环境变量配置: {FP} {SCRIPT_URL} {MAX_RETRIES} {API_KEY} {MODELS} {SYSTEM_PROMPT_INJECT} {TIMEOUT} {DEBUG} {PROXY}")

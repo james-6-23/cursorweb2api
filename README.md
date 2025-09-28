@@ -40,7 +40,7 @@ services:
 | `TIMEOUT`              | `60`                               | 请求cursor的超时时间                |
 | `MAX_RETRIES`          | `0`                                | 失败重试次数                       |
 | `DEBUG`                | `false`                            | 设置为 true 显示调试日志              |
-| `PROXY`                | ``                                 | 使用的代理(http://127.0.0.1:1234) |
+| `PROXY`                | ` `                                | 使用的代理(http://127.0.0.1:1234) |
 
 浏览器指纹获取脚本
 
