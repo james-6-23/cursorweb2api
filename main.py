@@ -14,7 +14,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from app.config import SCRIPT_URL, FP, API_KEY, MODELS, SYSTEM_PROMPT_INJECT, TIMEOUT
 from app.errors import CursorWebError
-from app.models import ChatCompletionRequest, Message, ModelsResponse, Model, Usage
+from app.models import ChatCompletionRequest, Message, ModelsResponse, Model, Usage, OpenAIMessageContent
 from app.utils import error_wrapper, to_async, generate_random_string, non_stream_chat_completion, \
     stream_chat_completion, safe_stream_wrapper
 
@@ -71,19 +71,88 @@ async def list_models(credentials: HTTPAuthorizationCredentials = Depends(securi
     return ModelsResponse(object="list", data=model_list)
 
 
+def inject_system_prompt(list_openai_message: list[Message], inject_prompt: str):
+    # 查找是否存在system角色的消息
+    system_message_found = False
+
+    for message in list_openai_message:
+        if message.role == "system":
+            system_message_found = True
+            # 处理content字段，需要考虑不同的数据类型
+            if message.content is None:
+                message.content = inject_prompt
+            elif isinstance(message.content, str):
+                message.content += f'\n{inject_prompt}'
+            elif isinstance(message.content, list):
+                # 如果content是列表，需要找到text类型的内容进行追加
+                # 或者添加一个新的text内容项
+                text_content_found = False
+                for content_item in message.content:
+                    if content_item.type == "text" and content_item.text:
+                        content_item.text += f'\n{inject_prompt}'
+                        text_content_found = True
+                        break
+
+                # 如果没有找到text内容，添加一个新的text内容项
+                if not text_content_found:
+                    new_text_content = OpenAIMessageContent(
+                        type="text",
+                        text=inject_prompt
+                        , image_url=None)
+                    message.content.append(new_text_content)
+            break  # 找到第一个system消息后就退出循环
+
+    # 如果没有找到system消息，在列表开头插入一个新的system消息
+    if not system_message_found:
+        system_message = Message(
+            role="system",
+            content=inject_prompt
+            , tool_call_id=None, tool_calls=None)
+        list_openai_message.insert(0, system_message)
+
+
+def collect_developer_messages(list_openai_message: list[Message]) -> str:
+    collected_contents = []
+
+    # 从后往前遍历，避免删除元素时索引变化的问题
+    for i in range(len(list_openai_message) - 1, -1, -1):
+        message = list_openai_message[i]
+
+        if message.role == "developer":
+            # 提取消息内容
+            content_text = ""
+
+            if message.content is None:
+                content_text = ""
+            elif isinstance(message.content, str):
+                content_text = message.content
+            elif isinstance(message.content, list):
+                # 如果content是列表，提取所有text类型的内容
+                text_parts = []
+                for content_item in message.content:
+                    if content_item.type == "text" and content_item.text:
+                        text_parts.append(content_item.text)
+                content_text = " ".join(text_parts)  # 多个text内容用空格连接
+
+            # 将内容添加到收集列表的开头，保持原始顺序
+            collected_contents.insert(0, content_text)
+
+            # 删除该消息
+            list_openai_message.pop(i)
+
+    # 将收集到的内容按\n拼接并返回
+    return "\n".join(collected_contents)
+
+
 def to_cursor_messages(list_openai_message: list[Message]):
     if list_openai_message is None:
         list_openai_message = []
 
+    developer_messages = collect_developer_messages(list_openai_message)
+    inject_system_prompt(list_openai_message, developer_messages)
+    inject_system_prompt(list_openai_message, SYSTEM_PROMPT_INJECT)
+
     result = []
-    if len(list_openai_message) > 0:
-        if list_openai_message[0].role == 'system':
-            if isinstance(list_openai_message[0].content, str):
-                list_openai_message[0].content += f'\n{SYSTEM_PROMPT_INJECT}'
-        else:
-            list_openai_message.insert(0, Message(role='system', content=f'\n{SYSTEM_PROMPT_INJECT}',
-                                                  tool_call_id=None,
-                                                  tool_calls=None))
 
     for m in list_openai_message:
         if not m:
@@ -154,13 +223,20 @@ async def cursor_chat(request: ChatCompletionRequest):
         async with session.stream("POST", 'https://cursor.com/api/chat', headers=headers, json=json_data,
                                   impersonate='chrome') as response:
             response: Response
+            # logger.debug(await response.atext())
+
             if response.status_code != 200:
                 text = await response.atext()
                 if 'Attention Required! | Cloudflare' in text:
                     text = 'Cloudflare 403'
                 raise CursorWebError(response.status_code, text)
+            content_type = response.headers['content-type']
+            if 'text/event-stream' not in content_type:
+                text = await response.atext()
+                raise CursorWebError(response.status_code, "响应非事件流: " + text)
             async for line in response.aiter_lines():
                 line = line.decode("utf-8")
+                # logger.debug(line)
                 data = parse_sse_line(line)
                 if not data:
                     continue
