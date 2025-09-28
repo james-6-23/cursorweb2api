@@ -20,3 +20,8 @@ DEBUG = os.environ.get("DEBUG", 'False').lower() == "true"
 if not DEBUG:
     logger.remove()
     logger.add(sys.stdout, level="INFO")
+
+
+PROXY = os.environ.get("PROXY", "")
+if not PROXY:
+    PROXY = None
