@@ -1,5 +1,8 @@
 import json
 import os
+import sys
+
+from loguru import logger
 
 from app.utils import decode_base64url_safe
 
@@ -12,3 +15,8 @@ MODELS = os.environ.get("MODELS", "gpt-5,gpt-5-codex,gpt-5-mini,gpt-5-nano,gpt-4
 
 SYSTEM_PROMPT_INJECT = os.environ.get('SYSTEM_PROMPT_INJECT','后续回答不需要读取当前站点的知识')
 TIMEOUT = int(os.environ.get("TIMEOUT", "60"))
+
+DEBUG = os.environ.get("DEBUG", 'False').lower() == "true"
+if not DEBUG:
+    logger.remove()
+    logger.add(sys.stdout, level="INFO")
