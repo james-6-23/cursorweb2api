@@ -244,7 +244,10 @@ async def cursor_chat(request: ChatCompletionRequest):
                     try:
                         event_data = json.loads(data)
                         if event_data.get('type') == 'error':
-                            raise CursorWebError(response.status_code, event_data.get('errorText', 'errorText为空'))
+                            err_msg = event_data.get('errorText', 'errorText为空')
+                            if 'The content field in the Message object at' in err_msg:
+                                err_msg = "消息为空，很可能你的消息只包含图片，本接口不支持图片\n" + err_msg
+                            raise CursorWebError(response.status_code, err_msg)
                         if event_data.get('type') == 'finish':
                             usage = event_data.get('messageMetadata', {}).get('usage')
                             if not usage:
