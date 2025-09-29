@@ -11,7 +11,7 @@ function setAccessorNamePropertyDescriptor(type, prototype, name, configurable, 
         })
     }
     if (type === 'set') {
-        Object.defineProperty(Object.getOwnPropertyDescriptor(prototype, name).get, 'name', {
+        Object.defineProperty(Object.getOwnPropertyDescriptor(prototype, name).set, 'name', {
             configurable: configurable,
             enumerable: enumerable,
             writable: writable,
