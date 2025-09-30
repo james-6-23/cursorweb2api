@@ -28,4 +28,7 @@ if not PROXY:
     PROXY = None
 
 
+X_IS_HUMAN_SERVER_URL = os.environ.get("X_IS_HUMAN_SERVER_URL", "")
+
+
 logger.info(f"环境变量配置: {FP} {SCRIPT_URL} {MAX_RETRIES} {API_KEY} {MODELS} {SYSTEM_PROMPT_INJECT} {TIMEOUT} {DEBUG} {PROXY}")

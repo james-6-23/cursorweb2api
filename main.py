@@ -1,3 +1,4 @@
+import base64
 import json
 import os
 import shutil
@@ -12,7 +13,8 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from loguru import logger
 from starlette.middleware.cors import CORSMiddleware
 
-from app.config import SCRIPT_URL, FP, API_KEY, MODELS, SYSTEM_PROMPT_INJECT, TIMEOUT, PROXY, USER_PROMPT_INJECT
+from app.config import SCRIPT_URL, FP, API_KEY, MODELS, SYSTEM_PROMPT_INJECT, TIMEOUT, PROXY, USER_PROMPT_INJECT, \
+    X_IS_HUMAN_SERVER_URL
 from app.errors import CursorWebError
 from app.models import ChatCompletionRequest, Message, ModelsResponse, Model, Usage, OpenAIMessageContent
 from app.utils import error_wrapper, to_async, generate_random_string, non_stream_chat_completion, \
@@ -153,10 +155,9 @@ def to_cursor_messages(list_openai_message: list[Message]):
     if SYSTEM_PROMPT_INJECT:
         inject_system_prompt(list_openai_message, SYSTEM_PROMPT_INJECT)
     if USER_PROMPT_INJECT:
-        list_openai_message.append(Message(role='user',content=USER_PROMPT_INJECT,tool_calls=None,tool_call_id=None))
+        list_openai_message.append(Message(role='user', content=USER_PROMPT_INJECT, tool_calls=None, tool_call_id=None))
 
-
-    result:list[dict[str, str]] = []
+    result: list[dict[str, str]] = []
 
     for m in list_openai_message:
         if not m:
@@ -177,8 +178,6 @@ def to_cursor_messages(list_openai_message: list[Message]):
             }]
         }
         result.append(message)
-
-
 
     if result[0]['role'] == 'system' and not result[0]['parts'][0]['text']:
         result.pop(0)
@@ -205,7 +204,10 @@ async def cursor_chat(request: ChatCompletionRequest):
         "trigger": "submit-message"
     }
     async with AsyncSession(impersonate='chrome', timeout=TIMEOUT, proxy=PROXY) as session:
-        x_is_human = await get_x_is_human(session)
+        if X_IS_HUMAN_SERVER_URL:
+            x_is_human = await get_x_is_human_server(session)
+        else:
+            x_is_human = await get_x_is_human(session)
         logger.debug(x_is_human)
         headers = {
             'User-Agent': FP.get("userAgent"),
@@ -272,6 +274,43 @@ async def cursor_chat(request: ChatCompletionRequest):
                         yield delta
                     except json.JSONDecodeError:
                         continue
+
+
+async def get_x_is_human_server(session: AsyncSession):
+    headers = {
+        'User-Agent': FP.get("userAgent"),
+        # 'Accept-Encoding': 'gzip, deflate, br, zstd',
+        'sec-ch-ua-arch': '"x86"',
+        'sec-ch-ua-platform': '"Windows"',
+        'sec-ch-ua': '"Chromium";v="140", "Not=A?Brand";v="24", "Google Chrome";v="140"',
+        'sec-ch-ua-bitness': '"64"',
+        'sec-ch-ua-mobile': '?0',
+        'sec-ch-ua-platform-version': '"19.0.0"',
+        'sec-fetch-site': 'same-origin',
+        'sec-fetch-mode': 'no-cors',
+        'sec-fetch-dest': 'script',
+        'referer': 'https://cursor.com/en-US/learn/how-ai-models-work',
+        'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8',
+    }
+
+    response = await session.get(SCRIPT_URL,
+                                 headers=headers,
+                                 impersonate='chrome')
+    cursor_js = response.text
+    js_b64 = base64.b64encode(cursor_js.encode('utf-8')).decode("utf-8")
+
+    response = await session.post(X_IS_HUMAN_SERVER_URL, json={
+        "jscode": js_b64,
+        "fp": FP
+    })
+    try:
+        s = response.json().get('s')
+    except json.decoder.JSONDecodeError:
+        raise CursorWebError(response.status_code, '纯算服务器返回结果错误: ' + response.text)
+    if not s:
+        raise CursorWebError(response.status_code, '纯算服务器返回结果错误: ' + response.text)
+
+    return response.text
 
 
 async def get_x_is_human(session: AsyncSession):
