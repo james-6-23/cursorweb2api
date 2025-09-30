@@ -12,7 +12,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from loguru import logger
 from starlette.middleware.cors import CORSMiddleware
 
-from app.config import SCRIPT_URL, FP, API_KEY, MODELS, SYSTEM_PROMPT_INJECT, TIMEOUT, PROXY
+from app.config import SCRIPT_URL, FP, API_KEY, MODELS, SYSTEM_PROMPT_INJECT, TIMEOUT, PROXY, USER_PROMPT_INJECT
 from app.errors import CursorWebError
 from app.models import ChatCompletionRequest, Message, ModelsResponse, Model, Usage, OpenAIMessageContent
 from app.utils import error_wrapper, to_async, generate_random_string, non_stream_chat_completion, \
@@ -150,7 +150,11 @@ def to_cursor_messages(list_openai_message: list[Message]):
 
     developer_messages = collect_developer_messages(list_openai_message)
     inject_system_prompt(list_openai_message, developer_messages)
-    inject_system_prompt(list_openai_message, SYSTEM_PROMPT_INJECT)
+    if SYSTEM_PROMPT_INJECT:
+        inject_system_prompt(list_openai_message, SYSTEM_PROMPT_INJECT)
+    if USER_PROMPT_INJECT:
+        list_openai_message.append(Message(role='user',content=USER_PROMPT_INJECT,tool_calls=None,tool_call_id=None))
+
 
     result = []
 
