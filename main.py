@@ -156,7 +156,7 @@ def to_cursor_messages(list_openai_message: list[Message]):
         list_openai_message.append(Message(role='user',content=USER_PROMPT_INJECT,tool_calls=None,tool_call_id=None))
 
 
-    result = []
+    result:list[dict[str, str]] = []
 
     for m in list_openai_message:
         if not m:
@@ -177,6 +177,11 @@ def to_cursor_messages(list_openai_message: list[Message]):
             }]
         }
         result.append(message)
+
+
+
+    if result[0]['role'] == 'system' and not result[0]['parts'][0]['text']:
+        result.pop(0)
 
     return result
 
