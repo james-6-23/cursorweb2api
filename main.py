@@ -18,7 +18,7 @@ from app.config import SCRIPT_URL, FP, API_KEY, MODELS, SYSTEM_PROMPT_INJECT, TI
 from app.errors import CursorWebError
 from app.models import ChatCompletionRequest, Message, ModelsResponse, Model, Usage, OpenAIMessageContent, ToolCall
 from app.utils import error_wrapper, to_async, generate_random_string, non_stream_chat_completion, \
-    stream_chat_completion, safe_stream_wrapper
+    stream_chat_completion, safe_stream_wrapper, match_tool_name
 
 main_code = open('./jscode/main.js', 'r', encoding='utf-8').read()
 env_code = open('./jscode/env.js', 'r', encoding='utf-8').read()
@@ -160,7 +160,6 @@ def to_cursor_messages(request: ChatCompletionRequest):
             inject_system_prompt(list_openai_message, "你可用的工具: " + json.dumps(tools))
             inject_system_prompt(list_openai_message, "不允许使用tool_calls: xxxx调用工具，请使用原生的工具调用方法")
 
-
     if SYSTEM_PROMPT_INJECT:
         inject_system_prompt(list_openai_message, SYSTEM_PROMPT_INJECT)
     if USER_PROMPT_INJECT:
@@ -227,6 +226,11 @@ def parse_sse_line(line: str) -> Optional[str]:
 
 
 async def cursor_chat(request: ChatCompletionRequest):
+    # 提取可用工具名列表，用于后续修正
+    available_tool_names = []
+    if ENABLE_FUNCTION_CALLING and request.tools:
+        available_tool_names = [tool.function.name for tool in request.tools]
+
     json_data = {
         "context": [
 
@@ -310,7 +314,11 @@ async def cursor_chat(request: ChatCompletionRequest):
                                 else:
                                     tool_input_str = json.dumps(tool_input)
 
-                                response.close() # 工具返回了直接掐断
+                                # 修正工具名称
+                                if available_tool_names:
+                                    tool_name = match_tool_name(tool_name, available_tool_names)
+
+                                response.close()  # 工具返回了直接掐断
                                 yield ToolCall(toolId=tool_call_id, toolInput=tool_input_str, toolName=tool_name)
                                 return
 

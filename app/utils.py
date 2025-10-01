@@ -111,6 +111,36 @@ def generate_random_string(length):
     return random_string
 
 
+def normalize_tool_name(name: str) -> str:
+    """将工具名统一标准化：将所有下划线替换为连字符"""
+    return name.replace('_', '-')
+
+
+def match_tool_name(tool_name: str, available_tools: list[str]) -> str:
+    """
+    匹配工具名称，如果不在列表中则尝试标准化匹配
+
+    Args:
+        tool_name: 需要匹配的工具名
+        available_tools: 可用的工具名列表
+
+    Returns:
+        匹配到的实际工具名，如果没有匹配返回原名称
+    """
+    # 直接匹配
+    if tool_name in available_tools:
+        return tool_name
+
+    # 标准化后匹配
+    normalized_input = normalize_tool_name(tool_name)
+    for available_tool in available_tools:
+        if normalize_tool_name(available_tool) == normalized_input:
+            return available_tool
+
+    # 没有匹配，返回原名称
+    return tool_name
+
+
 async def non_stream_chat_completion(
         request: ChatCompletionRequest,
         generator: AsyncGenerator[str, None]
