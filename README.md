@@ -27,6 +27,8 @@ services:
 
 - ✅ 完全兼容 OpenAI API 格式
 - ✅ 支持流式和非流式响应
+- ✅ 支持工具调用 (Function Calling) (需手动开启)
+
 
 ## 环境变量配置
 
