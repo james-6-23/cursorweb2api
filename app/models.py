@@ -59,6 +59,7 @@ class ChatCompletionRequest(BaseModel):
     model: Optional[str] = "gpt-4o"
     tools: list[OpenAITool] | None = Field(None, description="可用工具定义")
 
+
 class Model(BaseModel):
     id: str
     object: str
@@ -91,3 +92,9 @@ class ChatCompletionResponse(BaseModel):
     model: str
     choices: List[Choice]
     usage: Optional[Usage] = None
+
+
+class ToolCall(BaseModel):
+    toolName: str
+    toolId: str
+    toolInput: str

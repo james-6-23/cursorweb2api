@@ -13,7 +13,7 @@ from sse_starlette import EventSourceResponse
 from starlette.responses import JSONResponse
 
 from app.errors import CursorWebError
-from app.models import ChatCompletionRequest, Usage
+from app.models import ChatCompletionRequest, Usage, ToolCall
 
 
 async def safe_stream_wrapper(
@@ -120,10 +120,21 @@ async def non_stream_chat_completion(
     """
     # 收集所有流式输出
     full_content = ""
+    tool_calls = []
     usage = Usage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
     async for chunk in generator:
         if isinstance(chunk, Usage):
             usage = chunk
+            continue
+        if isinstance(chunk, ToolCall):
+            tool_calls.append({
+                "id": chunk.toolId,
+                "type": "function",
+                "function": {
+                    "name": chunk.toolName,
+                    "arguments": chunk.toolInput,
+                }
+            })
             continue
         full_content += chunk
 
@@ -138,7 +149,8 @@ async def non_stream_chat_completion(
                 "index": 0,
                 "message": {
                     "role": "assistant",
-                    "content": full_content
+                    "content": full_content,
+                    "tool_calls":tool_calls
                 },
                 "finish_reason": "stop"
             }
@@ -182,16 +194,48 @@ async def stream_chat_completion(
 
     # 流式发送内容
     usage = None
+    tool_call_idx = 0
     async for chunk in generator:
-        if isinstance(chunk, Usage):
-            usage = chunk
-            continue
-
         if not is_send_init:
             yield {
                 "data": json.dumps(initial_response, ensure_ascii=False)
             }
             is_send_init = True
+        if isinstance(chunk, Usage):
+            usage = chunk
+            continue
+
+        if isinstance(chunk, ToolCall):
+            data = {
+                "id": chat_id,
+                "object": "chat.completion.chunk",
+                "created": created_time,
+                "model": request.model,
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": tool_call_idx,
+                                    "id": chunk.toolId,
+                                    "type": "function",
+                                    "function": {
+                                        "name": chunk.toolName,
+                                        "arguments": chunk.toolInput,
+                                    },
+                                }
+                            ]
+                        },
+                        "finish_reason": None,
+                    }
+                ],
+            }
+            tool_call_idx += 1
+            yield {'data': json.dumps(data, ensure_ascii=False)}
+            continue
+
+
         chunk_response = {
             "id": chat_id,
             "object": "chat.completion.chunk",

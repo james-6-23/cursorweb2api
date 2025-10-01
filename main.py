@@ -14,9 +14,9 @@ from loguru import logger
 from starlette.middleware.cors import CORSMiddleware
 
 from app.config import SCRIPT_URL, FP, API_KEY, MODELS, SYSTEM_PROMPT_INJECT, TIMEOUT, PROXY, USER_PROMPT_INJECT, \
-    X_IS_HUMAN_SERVER_URL
+    X_IS_HUMAN_SERVER_URL, ENABLE_FUNCTION_CALLING
 from app.errors import CursorWebError
-from app.models import ChatCompletionRequest, Message, ModelsResponse, Model, Usage, OpenAIMessageContent
+from app.models import ChatCompletionRequest, Message, ModelsResponse, Model, Usage, OpenAIMessageContent, ToolCall
 from app.utils import error_wrapper, to_async, generate_random_string, non_stream_chat_completion, \
     stream_chat_completion, safe_stream_wrapper
 
@@ -146,12 +146,21 @@ def collect_developer_messages(list_openai_message: list[Message]) -> str:
     return "\n".join(collected_contents)
 
 
-def to_cursor_messages(list_openai_message: list[Message]):
+def to_cursor_messages(request: ChatCompletionRequest):
+    list_openai_message: list[Message] = request.messages
     if list_openai_message is None:
         list_openai_message = []
 
     developer_messages = collect_developer_messages(list_openai_message)
     inject_system_prompt(list_openai_message, developer_messages)
+
+    if ENABLE_FUNCTION_CALLING:
+        if request.tools:
+            tools = [tool.model_dump_json() for tool in request.tools]
+            inject_system_prompt(list_openai_message, "你可用的工具: " + json.dumps(tools))
+            inject_system_prompt(list_openai_message, "不允许使用tool_calls: xxxx调用工具，请使用原生的工具调用方法")
+
+
     if SYSTEM_PROMPT_INJECT:
         inject_system_prompt(list_openai_message, SYSTEM_PROMPT_INJECT)
     if USER_PROMPT_INJECT:
@@ -162,6 +171,30 @@ def to_cursor_messages(list_openai_message: list[Message]):
     for m in list_openai_message:
         if not m:
             continue
+
+        if ENABLE_FUNCTION_CALLING:
+            if m.tool_calls:
+                message = {
+                    'role': m.role,
+                    'parts': [{
+                        'type': 'text',
+                        'text': f"tool_calls: {json.dumps(m.tool_calls, ensure_ascii=False)}"
+                    }]
+                }
+                result.append(message)
+                continue
+
+            if m.tool_call_id:
+                message = {
+                    'role': 'user',
+                    'parts': [{
+                        'type': 'text',
+                        'text': f"{m.role}: tool_call_id: {m.tool_call_id} {m.content}"
+                    }]
+                }
+                result.append(message)
+                continue
+
         text = ''
         if isinstance(m.content, str):
             text = m.content
@@ -200,7 +233,7 @@ async def cursor_chat(request: ChatCompletionRequest):
         ],
         "model": request.model,
         "id": generate_random_string(16),
-        "messages": to_cursor_messages(request.messages),
+        "messages": to_cursor_messages(request),
         "trigger": "submit-message"
     }
     async with AsyncSession(impersonate='chrome', timeout=TIMEOUT, proxy=PROXY) as session:
@@ -267,6 +300,20 @@ async def cursor_chat(request: ChatCompletionRequest):
                                         completion_tokens=usage.get('outputTokens'),
                                         total_tokens=usage.get('totalTokens'))
                             return
+                        if ENABLE_FUNCTION_CALLING:
+                            if event_data.get('type') == 'tool-input-error':
+                                tool_call_id = event_data.get('toolCallId')
+                                tool_name = event_data.get('toolName')
+                                tool_input = event_data.get('input')
+                                if isinstance(tool_input, str):
+                                    tool_input_str = tool_input
+                                else:
+                                    tool_input_str = json.dumps(tool_input)
+
+                                response.close() # 工具返回了直接掐断
+                                yield ToolCall(toolId=tool_call_id, toolInput=tool_input_str, toolName=tool_name)
+                                return
+
                         delta = event_data.get('delta')
                         # logger.debug(delta)
                         if not delta:
