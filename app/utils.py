@@ -13,7 +13,7 @@ from sse_starlette import EventSourceResponse
 from starlette.responses import JSONResponse
 
 from app.errors import CursorWebError
-from app.models import ChatCompletionRequest, Usage, ToolCall
+from app.models import ChatCompletionRequest, Usage, ToolCall, Message
 
 
 async def safe_stream_wrapper(
@@ -180,7 +180,7 @@ async def non_stream_chat_completion(
                 "message": {
                     "role": "assistant",
                     "content": full_content,
-                    "tool_calls":tool_calls
+                    "tool_calls": tool_calls
                 },
                 "finish_reason": "stop"
             }
@@ -265,7 +265,6 @@ async def stream_chat_completion(
             yield {'data': json.dumps(data, ensure_ascii=False)}
             continue
 
-
         chunk_response = {
             "id": chat_id,
             "object": "chat.completion.chunk",
@@ -322,3 +321,184 @@ async def stream_chat_completion(
             "data": json.dumps(usage_data, ensure_ascii=False)
         }
     yield {"data": "[DONE]"}
+
+
+async def empty_retry_wrapper(
+        cursor_chat_func: Callable,
+        request: ChatCompletionRequest,
+        max_retries: int = 3
+) -> AsyncGenerator[Union[str, Usage, ToolCall], None]:
+    """
+    空回复重试包装器:检测到空回复时自动重试
+
+    Args:
+        cursor_chat_func: cursor_chat函数
+        request: 聊天请求
+        max_retries: 最大重试次数
+
+    Yields:
+        str/Usage/ToolCall: 流式输出
+
+    Raises:
+        CursorWebError: 重试后仍然空回复
+    """
+    for retry_count in range(max_retries + 1):
+        generator = cursor_chat_func(request)
+        has_content = False
+
+        async for chunk in generator:
+            if isinstance(chunk, ToolCall):
+                # 工具调用算有内容
+                has_content = True
+                yield chunk
+                return
+
+            elif isinstance(chunk, Usage):
+                # Usage直接透传
+                yield chunk
+
+            else:
+                # 文本内容
+                has_content = True
+                yield chunk
+
+        # 如果有内容,正常返回
+        if has_content:
+            return
+
+        # 没有内容且还有重试次数,继续重试
+        if retry_count < max_retries:
+            continue
+
+    # 达到最大重试次数仍然空回复,抛出异常
+    raise CursorWebError(200, f"空回复重试{max_retries}次后仍然失败")
+
+
+async def truncation_continue_wrapper(
+        cursor_chat_func: Callable,
+        request: ChatCompletionRequest,
+        max_retries: int = 10
+) -> AsyncGenerator[Union[str, Usage, ToolCall], None]:
+    """
+    截断继续包装器:实时流式输出,检测到截断时自动重试
+
+    Args:
+        cursor_chat_func: cursor_chat函数
+        request: 聊天请求
+        max_retries: 最大重试次数
+
+    Yields:
+        str/Usage/ToolCall: 流式输出
+    """
+    full_content = ""  # 累积的完整内容
+    total_prompt_tokens = 0
+    total_completion_tokens = 0
+    total_tokens = 0
+    current_usage = None
+
+    for retry_count in range(max_retries + 1):
+        generator = cursor_chat_func(request)
+        current_content = ""  # 当前轮次的内容
+        is_truncated = False
+        buffer = ""  # 缓冲区,仅在重试时使用
+        buffer_yielded = False  # 标记是否已经处理并输出过缓冲区
+
+        async for chunk in generator:
+            if isinstance(chunk, Usage):
+                current_usage = chunk
+                # 累加token统计
+                total_prompt_tokens += chunk.prompt_tokens
+                total_completion_tokens += chunk.completion_tokens
+                total_tokens += chunk.total_tokens
+
+                # 检查是否截断
+                is_truncated = chunk.completion_tokens == 4096
+                break
+
+            elif isinstance(chunk, ToolCall):
+                # 工具调用直接返回
+                yield chunk
+                return
+
+            else:
+                # 文本内容
+                current_content += chunk
+
+                if retry_count == 0:
+                    # 第一次请求,实时输出
+                    yield chunk
+                else:
+                    # 重试时,使用缓冲区
+                    buffer += chunk
+                    last_10_chars = full_content[-10:] if len(full_content) >= 10 else full_content
+
+                    if not buffer_yielded:
+                        # 检查缓冲区是否包含last_10_chars
+                        if last_10_chars and last_10_chars in buffer:
+                            # 找到匹配,移除并输出剩余部分
+                            buffer = buffer.replace(last_10_chars, "", 1)
+                            if buffer:
+                                yield buffer
+                            buffer = ""
+                            buffer_yielded = True
+                        elif len(buffer) > 20:
+                            # 缓冲区超过20字符还没匹配,直接输出
+                            yield buffer
+                            buffer = ""
+                            buffer_yielded = True
+                    else:
+                        # 已经处理过缓冲区,直接实时输出
+                        yield chunk
+                        buffer = ""
+
+        # 处理流结束后的缓冲区
+        if retry_count > 0 and buffer:
+            last_10_chars = full_content[-10:] if len(full_content) >= 10 else full_content
+            if not buffer_yielded and last_10_chars and last_10_chars in buffer:
+                buffer = buffer.replace(last_10_chars, "", 1)
+            if buffer:
+                yield buffer
+
+        # 更新累积内容
+        full_content += current_content
+
+        # 检查是否被截断
+        if not is_truncated:
+            # 未被截断,返回最终usage
+            if current_usage:
+                yield current_usage
+            return
+
+            # 被截断,构造继续对话
+        last_10_chars = full_content[-10:] if len(full_content) >= 10 else full_content
+        continue_prompt = f'''你的回复在"{last_10_chars}"处意外中断。
+
+        请直接从该处继续输出，遵循以下规则：
+        1. 以"{last_10_chars}"开头，紧接新内容
+        2. 若在代码块中，直接续写代码，禁止重复```标记或语言标识
+        3. 保持原有的格式、缩进和上下文
+
+        错误示例：截断于"document."
+        ❌ ```javascript\nlet a=1;\ndocument.createElement...
+
+        正确示例：
+        ✅ document.createElement...
+
+        立即继续，不要解释或重新开始。'''
+
+        # 重新构造上下文
+        new_messages = request.messages.copy()
+        new_messages.append(Message(role="assistant", content=full_content, tool_calls=None, tool_call_id=None))
+        new_messages.append(Message(role="user", content=continue_prompt, tool_calls=None, tool_call_id=None))
+
+        request = ChatCompletionRequest(
+            messages=new_messages,
+            stream=request.stream,
+            model=request.model,
+            tools=request.tools
+        )
+
+    # 达到最大重试次数,返回最终usage
+
+    if current_usage:
+        yield current_usage

@@ -14,11 +14,11 @@ from loguru import logger
 from starlette.middleware.cors import CORSMiddleware
 
 from app.config import SCRIPT_URL, FP, API_KEY, MODELS, SYSTEM_PROMPT_INJECT, TIMEOUT, PROXY, USER_PROMPT_INJECT, \
-    X_IS_HUMAN_SERVER_URL, ENABLE_FUNCTION_CALLING
+    X_IS_HUMAN_SERVER_URL, ENABLE_FUNCTION_CALLING, TRUNCATION_CONTINUE, TRUNCATION_MAX_RETRIES, EMPTY_RETRY_MAX_RETRIES
 from app.errors import CursorWebError
 from app.models import ChatCompletionRequest, Message, ModelsResponse, Model, Usage, OpenAIMessageContent, ToolCall
 from app.utils import error_wrapper, to_async, generate_random_string, non_stream_chat_completion, \
-    stream_chat_completion, safe_stream_wrapper, match_tool_name
+    stream_chat_completion, safe_stream_wrapper, match_tool_name, truncation_continue_wrapper, empty_retry_wrapper
 
 main_code = open('./jscode/main.js', 'r', encoding='utf-8').read()
 env_code = open('./jscode/env.js', 'r', encoding='utf-8').read()
@@ -45,7 +45,14 @@ async def chat_completions(
     if credentials.credentials != API_KEY:
         raise HTTPException(401, 'api key 错误')
 
-    chat_generator = cursor_chat(request)
+    # 空回复重试包装器(始终启用)
+    chat_func = lambda req: empty_retry_wrapper(cursor_chat, req, max_retries=EMPTY_RETRY_MAX_RETRIES)
+
+    if TRUNCATION_CONTINUE:
+        chat_generator = truncation_continue_wrapper(chat_func, request, max_retries=TRUNCATION_MAX_RETRIES)
+    else:
+        chat_generator = chat_func(request)
+
     # async for c in chat_generator:
     #     logger.debug(c)
 
